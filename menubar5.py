@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-#!/usr/bin/env python3
-
 import objc
 from urllib.parse import urlparse, unquote
 
@@ -19,6 +17,7 @@ from AppKit import (
     NSVariableStatusItemLength,
     NSWorkspace,
     NSRunningApplication,
+    NSImage,
 )
 from PyObjCTools import AppHelper
 
@@ -127,7 +126,13 @@ class AppDelegate(NSObject):
         if finder_app is not None:
             self.menu.addItem_(self.menu_item_for_app(finder_app, is_running=True))
         else:
-            self.menu.addItem_(self.simple_text_item("• Finder"))
+            self.menu.addItem_(
+                self.dock_only_item(
+                    label="Finder",
+                    path="/System/Library/CoreServices/Finder.app",
+                    is_running=True,
+                )
+            )
 
         dock_apps = get_persistent_dock_apps()
         dock_paths_seen = set()
@@ -193,6 +198,20 @@ class AppDelegate(NSObject):
         item.setEnabled_(False)
         return item
 
+    def set_menu_item_icon_from_image(self, item, icon):
+        if icon is not None:
+            icon = icon.copy()
+            icon.setSize_((16, 16))
+            item.setImage_(icon)
+
+    def set_menu_item_icon_from_path(self, item, path):
+        if not path:
+            return
+
+        workspace = NSWorkspace.sharedWorkspace()
+        icon = workspace.iconForFile_(path)
+        self.set_menu_item_icon_from_image(item, icon)
+
     def dock_only_item(self, label, path, is_running):
         title = f"• {label}" if is_running else f"  {label}"
         item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -200,6 +219,7 @@ class AppDelegate(NSObject):
         )
         item.setTarget_(self)
         item.setRepresentedObject_(path)
+        self.set_menu_item_icon_from_path(item, path)
         return item
 
     def menu_item_for_app(self, app, is_running):
@@ -213,10 +233,7 @@ class AppDelegate(NSObject):
         item.setRepresentedObject_(app)
 
         icon = app.icon()
-        if icon is not None:
-            icon = icon.copy()
-            icon.setSize_((16, 16))
-            item.setImage_(icon)
+        self.set_menu_item_icon_from_image(item, icon)
 
         return item
 
