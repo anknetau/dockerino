@@ -1,0 +1,80 @@
+"""
+dock.py — reads persistent Dock entries from macOS preferences.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from urllib.parse import unquote, urlparse
+
+from CoreFoundation import CFPreferencesCopyAppValue
+
+
+_DOCK_DOMAIN = "com.apple.dock"
+_PERSISTENT_APPS_KEY = "persistent-apps"
+
+# The Finder is always implicitly first in the Dock but is stored separately.
+FINDER_BUNDLE_ID = "com.apple.finder"
+FINDER_PATH = "/System/Library/CoreServices/Finder.app"
+
+
+@dataclass(frozen=True)
+class DockEntry:
+    label: str
+    path: str
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _cfurl_to_path(url: str | None) -> str | None:
+    """Convert a ``file://`` URL string to a POSIX path, or return *url* as-is."""
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme == "file":
+        return unquote(parsed.path)
+    return url
+
+
+def _normalize_path(path: str | None) -> str | None:
+    """Strip a trailing slash that macOS occasionally appends to bundle paths."""
+    if not path:
+        return None
+    path = str(path).rstrip("/")
+    return path or None
+
+
+def _is_finder_entry(path: str) -> bool:
+    return path.endswith(FINDER_PATH.lstrip("/"))
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def get_persistent_dock_apps() -> list[DockEntry]:
+    """
+    Return the list of apps pinned to the Dock (persistent-apps preference).
+
+    Finder is excluded — it is handled separately by the caller because it
+    is always running and needs special treatment.
+    """
+    raw_items = CFPreferencesCopyAppValue(_PERSISTENT_APPS_KEY, _DOCK_DOMAIN) or []
+    entries: list[DockEntry] = []
+
+    for item in raw_items:
+        tile_data = item.get("tile-data", {})
+        file_data = tile_data.get("file-data", {})
+
+        label: str = str(tile_data["file-label"]) if tile_data.get("file-label") else "Unknown"
+        url: str | None = file_data.get("_CFURLString")
+        path = _normalize_path(_cfurl_to_path(url))
+
+        if not path or _is_finder_entry(path):
+            continue
+
+        entries.append(DockEntry(label=label, path=path))
+
+    return entries
