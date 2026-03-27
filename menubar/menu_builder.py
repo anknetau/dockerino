@@ -15,13 +15,24 @@ from running_apps import (
     get_finder_app,
     get_running_regular_apps,
 )
+from windows import (
+    AccessibilityStatus,
+    MinimizedWindow,
+    get_minimized_windows,
+)
 
 
 _ICON_SIZE = (16, 16)
 
 # Bullet shown next to running apps; leading spaces align non-running entries.
-_RUNNING_PREFIX = "• "
-_STOPPED_PREFIX = "  "
+_RUNNING_PREFIX  = "• "
+_STOPPED_PREFIX  = "  "
+
+# Indentation prefix for minimized-window child rows.
+_WINDOW_PREFIX   = "      ↳ "
+
+# Shown when Accessibility permission has not been granted.
+_AX_DENIED_LABEL = "  ⚠ Enable Accessibility to show minimised windows…"
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +87,19 @@ def dock_app_item(entry: DockEntry, is_running: bool, target: object) -> NSMenuI
     return item
 
 
+def minimized_window_item(window: MinimizedWindow, target: object) -> NSMenuItem:
+    """Indented menu item representing one minimized window."""
+    title = f"{_WINDOW_PREFIX}{window.title}"
+    item = _make_item(title, "restoreWindow:", target)
+    item.setRepresentedObject_(window)
+    return item
+
+
+def accessibility_prompt_item(target: object) -> NSMenuItem:
+    """Tappable item shown when Accessibility permission is missing."""
+    return _make_item(_AX_DENIED_LABEL, "openAccessibilityPreferences:", target)
+
+
 def disabled_text_item(title: str) -> NSMenuItem:
     item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
     item.setEnabled_(False)
@@ -89,6 +113,32 @@ def action_item(title: str, action: str, key: str, target: object) -> NSMenuItem
 
 
 # ---------------------------------------------------------------------------
+# Minimized-window injection
+# ---------------------------------------------------------------------------
+
+def _append_minimized_windows(
+    menu, app, target: object, ax_denied_shown: list[bool]
+) -> None:
+    """
+    Query *app* for minimized windows and append child items to *menu*.
+
+    *ax_denied_shown* is a one-element list used as a mutable flag so the
+    "enable Accessibility" prompt is only inserted once across all apps.
+    """
+    pid = app.processIdentifier()
+    status, windows = get_minimized_windows(pid)
+
+    if status == AccessibilityStatus.DENIED:
+        if not ax_denied_shown[0]:
+            menu.addItem_(accessibility_prompt_item(target))
+            ax_denied_shown[0] = True
+        return
+
+    for win in windows:
+        menu.addItem_(minimized_window_item(win, target))
+
+
+# ---------------------------------------------------------------------------
 # Full menu rebuild
 # ---------------------------------------------------------------------------
 
@@ -96,22 +146,27 @@ def populate_menu(menu, target: object) -> None:
     """
     Clear *menu* and re-populate it with:
 
-    1. Finder (always first, always running)
-    2. Persistent Dock apps (running ones shown with bullet)
+    1. Finder (always first)
+    2. Persistent Dock apps; running ones include any minimized-window rows
     3. Separator
-    4. Other running apps not in the Dock (sorted alphabetically)
+    4. Other running apps not in the Dock (sorted alphabetically),
+       each followed by their minimized-window rows
     5. Separator
     6. "Refresh now" and "Quit" actions
     """
     menu.removeAllItems()
 
-    running_apps = get_running_regular_apps()
+    running_apps    = get_running_regular_apps()
     running_by_path = build_running_by_path(running_apps)
+
+    # Shared mutable flag — ensures the AX permission prompt appears at most once.
+    ax_denied_shown: list[bool] = [False]
 
     # --- Section 1: Finder ---
     finder = get_finder_app()
     if finder is not None:
         menu.addItem_(running_app_item(finder, target))
+        _append_minimized_windows(menu, finder, target, ax_denied_shown)
     else:
         menu.addItem_(
             dock_app_item(
@@ -131,6 +186,7 @@ def populate_menu(menu, target: object) -> None:
 
         if app is not None:
             menu.addItem_(running_app_item(app, target))
+            _append_minimized_windows(menu, app, target, ax_denied_shown)
         else:
             menu.addItem_(dock_app_item(entry, is_running=False, target=target))
 
@@ -142,12 +198,13 @@ def populate_menu(menu, target: object) -> None:
     if extra:
         for app in extra:
             menu.addItem_(running_app_item(app, target))
+            _append_minimized_windows(menu, app, target, ax_denied_shown)
     else:
         menu.addItem_(disabled_text_item("No other running apps"))
 
     # --- Separator + controls ---
     menu.addItem_(NSMenuItem.separatorItem())
-    menu.addItem_(action_item("Refresh now", "refreshMenu:", "", target))
+    # menu.addItem_(action_item("Refresh now", "refreshMenu:", "", target))
     menu.addItem_(action_item("Quit", "quitApp:", "q", target))
 
 

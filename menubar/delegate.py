@@ -20,10 +20,11 @@ from AppKit import (
 from Foundation import NSObject, NSTimer
 
 from menu_builder import populate_menu
+from windows import open_accessibility_preferences, restore_window
 
 
 _REFRESH_INTERVAL: float = 5.0   # seconds between automatic refreshes
-_STATUS_ITEM_TITLE: str = "D"
+_STATUS_ITEM_TITLE: str  = "D"
 
 
 class AppDelegate(NSObject):
@@ -91,6 +92,18 @@ class AppDelegate(NSObject):
         path = sender.representedObject()
         if path:
             NSWorkspace.sharedWorkspace().openFile_(path)
+
+    @objc.IBAction
+    def restoreWindow_(self, sender) -> None:
+        """Deminimize a window and bring it to the front."""
+        window = sender.representedObject()
+        if window is not None:
+            restore_window(window)
+
+    @objc.IBAction
+    def openAccessibilityPreferences_(self, sender) -> None:
+        """Open the Accessibility pane in System Settings."""
+        open_accessibility_preferences()
 
     @objc.IBAction
     def timerFired_(self, sender) -> None:
