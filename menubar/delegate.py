@@ -19,6 +19,7 @@ from AppKit import (
 )
 from Foundation import NSObject, NSTimer
 
+from dock_visibility import toggle_dock_autohide
 from menu_builder import populate_menu
 from windows import open_accessibility_preferences, restore_window
 
@@ -111,6 +112,12 @@ class AppDelegate(NSObject):
     def openAccessibilityPreferences_(self, sender) -> None:
         """Open the Accessibility pane in System Settings."""
         open_accessibility_preferences()
+
+    @objc.IBAction
+    def toggleDockVisibility_(self, sender) -> None:
+        """Toggle Dock autohide and rebuild the menu label."""
+        toggle_dock_autohide()
+        self._rebuild_menu()
 
     @objc.IBAction
     def timerFired_(self, sender) -> None:

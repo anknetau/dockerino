@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from AppKit import NSMenuItem, NSWorkspace
 
+from dock_visibility import get_dock_autohide
+
 from dock import (
     FINDER_PATH,
     DockEntry,
@@ -135,6 +137,12 @@ def action_item(title: str, action: str, key: str, target: object) -> NSMenuItem
     return item
 
 
+def dock_visibility_item(target: object) -> NSMenuItem:
+    """Menu item that toggles Dock autohide."""
+    title = "Show Dock" if get_dock_autohide() else "Hide Dock"
+    return action_item(title, "toggleDockVisibility:", "", target)
+
+
 # ---------------------------------------------------------------------------
 # Minimized-window injection
 # ---------------------------------------------------------------------------
@@ -225,18 +233,17 @@ def populate_menu(menu, target: object) -> None:
     else:
         menu.addItem_(disabled_text_item("No other running apps"))
 
-    # --- Section 4: Right-side Dock items (Downloads, folders, files, stacks) ---
+    # --- Section 4: Right-side Dock items (Downloads, folders, files, stacks), then Trash ---
     dock_others = get_persistent_dock_others()
     if dock_others:
         menu.addItem_(NSMenuItem.separatorItem())
         for entry in dock_others:
             menu.addItem_(dock_other_item(entry, target))
-
-    # --- Separator + Trash + controls ---
-    menu.addItem_(NSMenuItem.separatorItem())
     menu.addItem_(trash_item(target))
+
+    # --- Separator  + Dock visibility + controls ---
     menu.addItem_(NSMenuItem.separatorItem())
-    # menu.addItem_(action_item("Refresh now", "refreshMenu:", "", target))
+    menu.addItem_(dock_visibility_item(target))
     menu.addItem_(action_item("Quit", "quitApp:", "q", target))
 
 
