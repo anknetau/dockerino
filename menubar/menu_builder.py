@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from AppKit import NSMenuItem, NSWorkspace
 
-from dock import FINDER_PATH, DockEntry, get_persistent_dock_apps, get_trash_entry
+from dock import (
+    FINDER_PATH,
+    DockEntry,
+    get_persistent_dock_apps,
+    get_persistent_dock_others,
+    get_trash_entry,
+)
 from running_apps import (
     build_running_by_path,
     get_finder_app,
@@ -91,6 +97,14 @@ def trash_item(target: object) -> NSMenuItem:
     """Menu item for Trash."""
     entry = get_trash_entry()
     item = _make_item(entry.label, "openTrash:", target)
+    item.setRepresentedObject_(entry.path)
+    _apply_icon_from_path(item, entry.path)
+    return item
+
+
+def dock_other_item(entry: DockEntry, target: object) -> NSMenuItem:
+    """Menu item for a right-side Dock item such as Downloads or Documents."""
+    item = _make_item(entry.label, "openDockApp:", target)
     item.setRepresentedObject_(entry.path)
     _apply_icon_from_path(item, entry.path)
     return item
@@ -210,6 +224,13 @@ def populate_menu(menu, target: object) -> None:
             _append_minimized_windows(menu, app, target, ax_denied_shown)
     else:
         menu.addItem_(disabled_text_item("No other running apps"))
+
+    # --- Section 4: Right-side Dock items (Downloads, folders, files, stacks) ---
+    dock_others = get_persistent_dock_others()
+    if dock_others:
+        menu.addItem_(NSMenuItem.separatorItem())
+        for entry in dock_others:
+            menu.addItem_(dock_other_item(entry, target))
 
     # --- Separator + Trash + controls ---
     menu.addItem_(NSMenuItem.separatorItem())

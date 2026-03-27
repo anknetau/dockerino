@@ -13,6 +13,7 @@ from CoreFoundation import CFPreferencesCopyAppValue
 
 _DOCK_DOMAIN = "com.apple.dock"
 _PERSISTENT_APPS_KEY = "persistent-apps"
+_PERSISTENT_OTHERS_KEY = "persistent-others"
 
 # The Finder is always implicitly first in the Dock but is stored separately.
 FINDER_BUNDLE_ID = "com.apple.finder"
@@ -56,19 +57,10 @@ def _is_finder_entry(path: str) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
-def get_trash_entry() -> DockEntry:
-    """Return the built-in Trash item."""
-    return DockEntry(label="Trash", path=TRASH_PATH)
 
-
-def get_persistent_dock_apps() -> list[DockEntry]:
-    """
-    Return the list of apps pinned to the Dock (persistent-apps preference).
-
-    Finder is excluded — it is handled separately by the caller because it
-    is always running and needs special treatment.
-    """
-    raw_items = CFPreferencesCopyAppValue(_PERSISTENT_APPS_KEY, _DOCK_DOMAIN) or []
+def _entries_for_key(key: str) -> list[DockEntry]:
+    """Return Dock entries for a given Dock preference-array key."""
+    raw_items = CFPreferencesCopyAppValue(key, _DOCK_DOMAIN) or []
     entries: list[DockEntry] = []
 
     for item in raw_items:
@@ -85,3 +77,22 @@ def get_persistent_dock_apps() -> list[DockEntry]:
         entries.append(DockEntry(label=label, path=path))
 
     return entries
+
+def get_trash_entry() -> DockEntry:
+    """Return the built-in Trash item."""
+    return DockEntry(label="Trash", path=TRASH_PATH)
+
+
+def get_persistent_dock_apps() -> list[DockEntry]:
+    """
+    Return the list of apps pinned to the Dock (persistent-apps preference).
+
+    Finder is excluded — it is handled separately by the caller because it
+    is always running and needs special treatment.
+    """
+    return _entries_for_key(_PERSISTENT_APPS_KEY)
+
+
+def get_persistent_dock_others() -> list[DockEntry]:
+    """Return the list of right-side Dock items (folders, files, stacks)."""
+    return _entries_for_key(_PERSISTENT_OTHERS_KEY)
