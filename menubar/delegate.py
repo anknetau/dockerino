@@ -94,6 +94,13 @@ class AppDelegate(NSObject):
             NSWorkspace.sharedWorkspace().openFile_(path)
 
     @objc.IBAction
+    def openTrash_(self, sender) -> None:
+        """Open the user's Trash in Finder."""
+        path = sender.representedObject()
+        if path:
+            NSWorkspace.sharedWorkspace().openFile_(path)
+
+    @objc.IBAction
     def restoreWindow_(self, sender) -> None:
         """Deminimize a window and bring it to the front."""
         window = sender.representedObject()

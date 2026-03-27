@@ -5,6 +5,7 @@ dock.py — reads persistent Dock entries from macOS preferences.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from CoreFoundation import CFPreferencesCopyAppValue
@@ -16,6 +17,7 @@ _PERSISTENT_APPS_KEY = "persistent-apps"
 # The Finder is always implicitly first in the Dock but is stored separately.
 FINDER_BUNDLE_ID = "com.apple.finder"
 FINDER_PATH = "/System/Library/CoreServices/Finder.app"
+TRASH_PATH = str(Path.home() / ".Trash")
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,11 @@ def _is_finder_entry(path: str) -> bool:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def get_trash_entry() -> DockEntry:
+    """Return the built-in Trash item."""
+    return DockEntry(label="Trash", path=TRASH_PATH)
+
 
 def get_persistent_dock_apps() -> list[DockEntry]:
     """

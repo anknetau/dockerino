@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from AppKit import NSMenuItem, NSWorkspace
 
-from dock import FINDER_PATH, DockEntry, get_persistent_dock_apps
+from dock import FINDER_PATH, DockEntry, get_persistent_dock_apps, get_trash_entry
 from running_apps import (
     build_running_by_path,
     get_finder_app,
@@ -82,6 +82,15 @@ def dock_app_item(entry: DockEntry, is_running: bool, target: object) -> NSMenuI
     """Menu item for a Dock-pinned app (running or not)."""
     title = _format_title(entry.label, is_running)
     item = _make_item(title, "openDockApp:", target)
+    item.setRepresentedObject_(entry.path)
+    _apply_icon_from_path(item, entry.path)
+    return item
+
+
+def trash_item(target: object) -> NSMenuItem:
+    """Menu item for Trash."""
+    entry = get_trash_entry()
+    item = _make_item(entry.label, "openTrash:", target)
     item.setRepresentedObject_(entry.path)
     _apply_icon_from_path(item, entry.path)
     return item
@@ -202,7 +211,9 @@ def populate_menu(menu, target: object) -> None:
     else:
         menu.addItem_(disabled_text_item("No other running apps"))
 
-    # --- Separator + controls ---
+    # --- Separator + Trash + controls ---
+    menu.addItem_(NSMenuItem.separatorItem())
+    menu.addItem_(trash_item(target))
     menu.addItem_(NSMenuItem.separatorItem())
     # menu.addItem_(action_item("Refresh now", "refreshMenu:", "", target))
     menu.addItem_(action_item("Quit", "quitApp:", "q", target))
