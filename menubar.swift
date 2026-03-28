@@ -459,8 +459,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = STATUS_ITEM_TITLE
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+
+        if let button = item.button {
+            button.title = ""
+            button.image = makeAnchorStatusImage()
+            button.imagePosition = .imageOnly
+        }
+
         self.statusItem = item
     }
 
@@ -544,3 +550,63 @@ app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
+
+func makeAnchorStatusImage() -> NSImage {
+    let size = NSSize(width: 18, height: 18)
+    let image = NSImage(size: size)
+    image.isTemplate = true
+
+    image.lockFocus()
+
+    let path = NSBezierPath()
+    path.lineWidth = 1.8
+
+    let midX = size.width / 2.0
+    let topY: CGFloat = 14.5
+    let ringRadius: CGFloat = 2.2
+    let stemTop = topY - ringRadius - 0.8
+    let stemBottom: CGFloat = 6.4
+    let armY: CGFloat = 8.2
+    let armHalfWidth: CGFloat = 4.6
+    let baseY: CGFloat = 3.2
+    let hookDrop: CGFloat = 3.0
+    let hookInset: CGFloat = 1.4
+
+    NSColor.labelColor.setStroke()
+
+    path.appendArc(
+        withCenter: NSPoint(x: midX, y: topY - ringRadius),
+        radius: ringRadius,
+        startAngle: 0,
+        endAngle: 360
+    )
+
+    path.move(to: NSPoint(x: midX, y: stemTop))
+    path.line(to: NSPoint(x: midX, y: stemBottom))
+
+    path.move(to: NSPoint(x: midX - armHalfWidth, y: armY))
+    path.line(to: NSPoint(x: midX + armHalfWidth, y: armY))
+
+    path.move(to: NSPoint(x: midX - armHalfWidth, y: armY))
+    path.curve(
+        to: NSPoint(x: midX - hookInset, y: baseY),
+        controlPoint1: NSPoint(x: midX - armHalfWidth, y: armY - 1.8),
+        controlPoint2: NSPoint(x: midX - armHalfWidth + 0.2, y: baseY + hookDrop)
+    )
+
+    path.move(to: NSPoint(x: midX + armHalfWidth, y: armY))
+    path.curve(
+        to: NSPoint(x: midX + hookInset, y: baseY),
+        controlPoint1: NSPoint(x: midX + armHalfWidth, y: armY - 1.8),
+        controlPoint2: NSPoint(x: midX + armHalfWidth - 0.2, y: baseY + hookDrop)
+    )
+
+    path.move(to: NSPoint(x: midX - 2.1, y: baseY + 0.6))
+    path.line(to: NSPoint(x: midX, y: baseY - 1.0))
+    path.line(to: NSPoint(x: midX + 2.1, y: baseY + 0.6))
+
+    path.stroke()
+    image.unlockFocus()
+
+    return image
+}
