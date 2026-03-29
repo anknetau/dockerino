@@ -121,6 +121,10 @@ def dock_item_record(elem):
     for internal_key, ax_attr in attribute_mappings:
         properties[internal_key] = _extract_attr(elem, ax_attr)
 
+    # Debug: dump all properties (skip None values and keys with children)
+    filtered_properties = {k: v for k, v in properties.items() if v is not None and k not in ("children", "visible_children", "contents", "window", "parent")}
+    print("All properties:", filtered_properties)
+
     # Extract specific properties of interest
     title = properties.get("title")
     url = ax_value(elem, AS.kAXURLAttribute)
@@ -134,7 +138,7 @@ def dock_item_record(elem):
         "title": str(title) if title is not None else None,
         "path": nsurl_to_path(url),
         "badge": str(badge) if badge not in (None, "") else None,
-        "running": str(running) == "True" if running is not None else None,
+        "running": str(running).lower() == "true" if running is not None else None,
         "position": str(pos) if pos is not None else None,
     }
 
@@ -162,15 +166,15 @@ def main():
     for item in records:
         title = ""
         if item["title"] is not None:
-            title = item["title"]
+            title = title + item["title"]
+        if item["running"] == True:
+            title = title + "•"
         if item["badge"] is not None:
             title = title + " (" + item["badge"] + ")" # TODO: convert to number
-        if item["running"] == True:
-            title = title + " RUNNING"
         if title == "":
             title = "-"
         fields = ["path"]
-        parts = [title, (item["role"] or "-") + "/" + (item["subrole"] or "-")] + [f"{field}={item[field]!r}" for field in fields]
+        parts = [ title, f"{item['role'] or '-'} / {item['subrole'] or '-'}" ] + [f"{field}={item[field]!r}" for field in fields]
         print(" | ".join(parts))
 
 
