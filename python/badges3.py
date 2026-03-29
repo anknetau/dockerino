@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from AppKit import NSWorkspace
+from AppKit import NSWorkspace, NSRunningApplication
 from ApplicationServices import (
     AXIsProcessTrusted,
     AXUIElementCreateApplication,
@@ -17,11 +17,11 @@ CONTAINER_ATTRS = [
 ]
 
 
-def find_dock_pid():
-    for app in NSWorkspace.sharedWorkspace().runningApplications():
-        if str(app.bundleIdentifier() or "") == DOCK_BUNDLE_ID:
-            return app.processIdentifier()
-    raise RuntimeError("Dock process not found")
+def find_pid(bundle_id):
+    try:
+        return NSRunningApplication.runningApplicationsWithBundleIdentifier_(bundle_id)[0].processIdentifier()
+    except Exception:
+        raise RuntimeError("Dock process not found")
 
 
 def ax_attr_names(elem):
@@ -63,15 +63,23 @@ def walk_ax(elem, seen=None):
     if seen is None:
         seen = set()
 
-    key = repr(elem)
-    if key in seen:
-        return
-    seen.add(key)
+    oid = id(elem)
+    # if oid in seen:
+    #     return
+    seen.add(oid)
 
     yield elem
 
-    for _, child in iter_child_elements(elem):
+    # Get all children recursively like badges1.py
+    children = ax_value(elem, "AXChildren") or []
+    for child in children:
         yield from walk_ax(child, seen)
+
+    # Also check AXVisibleChildren for elements that might not have AXChildren
+    visible = ax_value(elem, "AXVisibleChildren") or []
+    for child in visible:
+        if id(child) not in seen:
+            yield from walk_ax(child, seen)
 
 
 def nsurl_to_path(url):
@@ -87,8 +95,9 @@ def dock_item_record(elem):
     role = ax_value(elem, "AXRole")
     subrole = ax_value(elem, "AXSubrole")
 
-    if role != "AXDockItem":
-        return None
+
+    # if role != "AXDockItem" or subrole != "AXApplicationDockItem":
+    #     return None
 
     title = ax_value(elem, "AXTitle")
     url = ax_value(elem, "AXURL")
@@ -118,7 +127,7 @@ def main():
         print("Enable it for Terminal / Python in System Settings -> Privacy & Security -> Accessibility.")
         return
 
-    pid = find_dock_pid()
+    pid = find_pid(DOCK_BUNDLE_ID)
     app_elem = AXUIElementCreateApplication(pid)
 
     records = []
@@ -135,9 +144,9 @@ def main():
             record["role"],
             record["subrole"],
         )
-        if key in seen_records:
-            continue
-        seen_records.add(key)
+        # if record["path"] in seen_records:
+        #     continue
+        seen_records.add(record["path"])
         records.append(record)
 
     if not records:
@@ -147,6 +156,7 @@ def main():
     for item in sorted(records, key=sort_key):
         print(
             f"title={item['title']!r} | "
+            f"role={item['role']!r} | "
             f"subrole={item['subrole']!r} | "
             f"running={item['running']!r} | "
             f"badge={item['badge']!r} | "
