@@ -77,72 +77,85 @@ def nsurl_to_path(url):
         return str(url)
 
 
-def dock_item_record(elem):
-    role = ax_value(elem, AS.kAXRoleAttribute)
-    subrole = ax_value(elem, AS.kAXSubroleAttribute)
+def _extract_attr(elem, attr_name):
+    """Helper to extract and convert an attribute value."""
+    value = ax_value(elem, attr_name)
+    if value is None:
+        return None
+    return str(value)
 
-    # Collect all available AX* properties for the element
-    all_attrs = ax_attr_names(elem)
+
+def dock_item_record(elem):
+    # Define attribute mappings: (internal_key, AX_attribute_name)
+    attribute_mappings = [
+        ("id", AS.kAXIdentifierAttribute),
+        ("localized_id", AS.kAXLocalizedIdentifierAttribute),
+        ("role", AS.kAXRoleAttribute),
+        ("subrole", AS.kAXSubroleAttribute),
+        ("title", AS.kAXTitleAttribute),
+        ("localized_title", AS.kAXLocalizedTitleAttribute),
+        ("url", AS.kAXURLAttribute),
+        ("badge", "AXStatusLabel"),
+        ("running", AS.kAXIsApplicationRunningAttribute),
+        ("position", AS.kAXPositionAttribute),
+        ("description", AS.kAXDescriptionAttribute),
+        ("help", AS.kAXHelpAttribute),
+        ("value", AS.kAXValueAttribute),
+        ("value_description", AS.kAXValueDescriptionAttribute),
+        ("selected", AS.kAXSelectedAttribute),
+        ("enabled", AS.kAXEnabledAttribute),
+        ("editable", "AXEditable"),
+        ("orientation", AS.kAXOrientationAttribute),
+        ("size", AS.kAXSizeAttribute),
+        ("frame", "AXFrameAttribute"),
+        ("window", AS.kAXWindowAttribute),
+        ("parent", AS.kAXParentAttribute),
+        ("children", AS.kAXChildrenAttribute),
+        ("visible_children", AS.kAXVisibleChildrenAttribute),
+        ("contents", AS.kAXContentsAttribute),
+        ("role_description", AS.kAXRoleDescriptionAttribute),
+        ("subrole_description", "AXSubroleDescription"),
+        ("label", "AXLabel"),
+        ("localized_role_description", AS.kAXLocalizedRoleDescriptionAttribute),
+        ("localized_subrole_description", AS.kAXLocalizedSubroleDescriptionAttribute),
+        ("localized_description", "AXLocalizedDescription"),
+        ("localized_help", AS.kAXLocalizedHelpAttribute),
+        ("localized_value_description", AS.kAXLocalizedValueDescriptionAttribute),
+        ("localized_label", AS.kAXLocalizedLabelAttribute),
+        ("localized_value", AS.kAXLocalizedValueAttribute),
+        ("localized_role", AS.kAXLocalizedRoleAttribute),
+        ("localized_subrole", AS.kAXLocalizedSubroleAttribute),
+        ("localized_position", AS.kAXLocalizedPositionAttribute),
+        ("localized_size", AS.kAXLocalizedSizeAttribute),
+        ("localized_frame", AS.kAXLocalizedFrameAttribute),
+        ("localized_window", AS.kAXLocalizedWindowAttribute),
+        ("localized_parent", AS.kAXLocalizedParentAttribute),
+        ("localized_children", AS.kAXLocalizedChildrenAttribute),
+        ("localized_visible_children", AS.kAXLocalizedVisibleChildrenAttribute),
+        ("localized_contents", AS.kAXLocalizedContentsAttribute),
+        ("localized_selected", AS.kAXLocalizedSelectedAttribute),
+        ("localized_enabled", AS.kAXLocalizedEnabledAttribute),
+        ("localized_editable", AS.kAXLocalizedEditableAttribute),
+        ("localized_orientation", AS.kAXLocalizedOrientationAttribute),
+    ]
+
+    # Extract all attributes using the mapping
     properties = {}
-    for attr in all_attrs:
-        value = ax_value(elem, attr)
-        properties[attr] = value
+    for internal_key, ax_attr in attribute_mappings:
+        properties[internal_key] = _extract_attr(elem, ax_attr)
 
     # Extract specific properties of interest
-    title = ax_value(elem, AS.kAXTitleAttribute)
+    title = properties.get("title")
     url = ax_value(elem, AS.kAXURLAttribute)
-    badge = ax_value(elem, "AXStatusLabel")
-    running = ax_value(elem, AS.kAXIsApplicationRunningAttribute)
-    pos = ax_value(elem, AS.kAXPositionAttribute)
-
-    # Additional properties that might be useful
-    description = ax_value(elem, AS.kAXDescriptionAttribute)
-    help = ax_value(elem, AS.kAXHelpAttribute)
-    value = ax_value(elem, AS.kAXValueAttribute)
-    value_description = ax_value(elem, AS.kAXValueDescriptionAttribute)
-    selected = ax_value(elem, AS.kAXSelectedAttribute)
-    enabled = ax_value(elem, AS.kAXEnabledAttribute)
-    editable = ax_value(elem, "AXEditable")
-    orientation = ax_value(elem, AS.kAXOrientationAttribute)
-    size = ax_value(elem, AS.kAXSizeAttribute)
-    frame = ax_value(elem, "AXFrameAttribute")
-    window = ax_value(elem, AS.kAXWindowAttribute)
-    parent = ax_value(elem, AS.kAXParentAttribute)
-    children = ax_value(elem, AS.kAXChildrenAttribute)
-    visible_children = ax_value(elem, AS.kAXVisibleChildrenAttribute)
-    contents = ax_value(elem, AS.kAXContentsAttribute)
-    role_description = ax_value(elem, AS.kAXRoleDescriptionAttribute)
-    subrole_description = ax_value(elem, "AXSubroleDescription")
-    identifier = ax_value(elem, AS.kAXIdentifierAttribute)
-    label = ax_value(elem, "AXLabel")
-    localized_role_description = ax_value(elem, AS.kAXLocalizedRoleDescriptionAttribute)
-    localized_subrole_description = ax_value(elem, AS.kAXLocalizedSubroleDescriptionAttribute)
-    localized_description = ax_value(elem, "AXLocalizedDescription")
-    localized_help = ax_value(elem, AS.kAXLocalizedHelpAttribute)
-    localized_value_description = ax_value(elem, AS.kAXLocalizedValueDescriptionAttribute)
-    localized_label = ax_value(elem, AS.kAXLocalizedLabelAttribute)
-    localized_title = ax_value(elem, AS.kAXLocalizedTitleAttribute)
-    localized_value = ax_value(elem, AS.kAXLocalizedValueAttribute)
-    localized_identifier = ax_value(elem, AS.kAXLocalizedIdentifierAttribute)
-    localized_role = ax_value(elem, AS.kAXLocalizedRoleAttribute)
-    localized_subrole = ax_value(elem, AS.kAXLocalizedSubroleAttribute)
-    localized_position = ax_value(elem, AS.kAXLocalizedPositionAttribute)
-    localized_size = ax_value(elem, AS.kAXLocalizedSizeAttribute)
-    localized_frame = ax_value(elem, AS.kAXLocalizedFrameAttribute)
-    localized_window = ax_value(elem, AS.kAXLocalizedWindowAttribute)
-    localized_parent = ax_value(elem, AS.kAXLocalizedParentAttribute)
-    localized_children = ax_value(elem, AS.kAXLocalizedChildrenAttribute)
-    localized_visible_children = ax_value(elem, AS.kAXLocalizedVisibleChildrenAttribute)
-    localized_contents = ax_value(elem, AS.kAXLocalizedContentsAttribute)
-    localized_selected = ax_value(elem, AS.kAXLocalizedSelectedAttribute)
-    localized_enabled = ax_value(elem, AS.kAXLocalizedEnabledAttribute)
-    localized_editable = ax_value(elem, AS.kAXLocalizedEditableAttribute)
-    localized_orientation = ax_value(elem, AS.kAXLocalizedOrientationAttribute)
+    badge = properties.get("badge")
+    running = properties.get("running")
+    pos = properties.get("position")
+    localized_identifier = properties.get("localized_id")
 
     return {
         "id": str(localized_identifier) if localized_identifier is not None else None,
-        "role": str(role) if role is not None else None,
-        "subrole": str(subrole) if subrole is not None else None,
+        "role": properties.get("role"),
+        "subrole": properties.get("subrole"),
         "title": str(title) if title is not None else None,
         "path": nsurl_to_path(url),
         "badge": str(badge) if badge not in (None, "") else None,
