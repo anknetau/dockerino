@@ -88,7 +88,6 @@ def _extract_attr(elem, attr_name):
 def dock_item_record(elem):
     # Define attribute mappings: (internal_key, AX_attribute_name)
     attribute_mappings = [
-        ("id", AS.kAXIdentifierAttribute),
         ("role", AS.kAXRoleAttribute),
         ("subrole", AS.kAXSubroleAttribute),
         ("title", AS.kAXTitleAttribute),
@@ -115,9 +114,6 @@ def dock_item_record(elem):
         ("role_description", AS.kAXRoleDescriptionAttribute),
         ("subrole_description", "AXSubroleDescription"),
         ("label", "AXLabel"),
-        ("localized_role_description", "AXLocalizedRoleDescription"),
-        ("localized_subrole_description", "AXLocalizedSubroleDescription"),
-        ("localized_description", "AXLocalizedDescription"),
     ]
 
     # Extract all attributes using the mapping
@@ -131,16 +127,14 @@ def dock_item_record(elem):
     badge = properties.get("badge")
     running = properties.get("running")
     pos = properties.get("position")
-    localized_identifier = properties.get("id")
 
     return {
-        "id": str(localized_identifier) if localized_identifier is not None else None,
         "role": properties.get("role"),
         "subrole": properties.get("subrole"),
         "title": str(title) if title is not None else None,
         "path": nsurl_to_path(url),
         "badge": str(badge) if badge not in (None, "") else None,
-        "running": bool(running) if running is not None else None,
+        "running": str(running) == "True" if running is not None else None,
         "position": str(pos) if pos is not None else None,
     }
 
@@ -166,16 +160,18 @@ def main():
         return
 
     for item in records:
-        print(
-            f"id={item['id']!r} | "
-            f"title={item['title']!r} | "
-            f"role={item['role']!r} | "
-            f"subrole={item['subrole']!r} | "
-            f"running={item['running']!r} | "
-            f"badge={item['badge']!r} | "
-            f"path={item['path']!r} | "
-            f"position={item['position']}"
-        )
+        title = ""
+        if item["title"] is not None:
+            title = item["title"]
+        if item["badge"] is not None:
+            title = title + " (" + item["badge"] + ")" # TODO: convert to number
+        if item["running"] == True:
+            title = title + " RUNNING"
+        if title == "":
+            title = "-"
+        fields = ["path"]
+        parts = [title, (item["role"] or "-") + "/" + (item["subrole"] or "-")] + [f"{field}={item[field]!r}" for field in fields]
+        print(" | ".join(parts))
 
 
 if __name__ == "__main__":
