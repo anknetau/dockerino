@@ -1,3 +1,7 @@
+"""
+Controls the macOS Dock's autohide behavior.
+"""
+
 from CoreFoundation import (
     CFPreferencesCopyAppValue,
     CFPreferencesSetAppValue,
