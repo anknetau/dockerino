@@ -89,7 +89,6 @@ def dock_item_record(elem):
     # Define attribute mappings: (internal_key, AX_attribute_name)
     attribute_mappings = [
         ("id", AS.kAXIdentifierAttribute),
-        ("localized_id", AS.kAXLocalizedIdentifierAttribute),
         ("role", AS.kAXRoleAttribute),
         ("subrole", AS.kAXSubroleAttribute),
         ("title", AS.kAXTitleAttribute),
@@ -117,7 +116,7 @@ def dock_item_record(elem):
         ("subrole_description", "AXSubroleDescription"),
         ("label", "AXLabel"),
         ("localized_role_description", AS.kAXLocalizedRoleDescriptionAttribute),
-        ("localized_subrole_description", AS.kAXLocalizedSubroleDescriptionAttribute),
+        ("localized_subrole_description", "AXLocalizedSubroleDescription"),
         ("localized_description", "AXLocalizedDescription"),
         ("localized_help", AS.kAXLocalizedHelpAttribute),
         ("localized_value_description", AS.kAXLocalizedValueDescriptionAttribute),
@@ -150,7 +149,7 @@ def dock_item_record(elem):
     badge = properties.get("badge")
     running = properties.get("running")
     pos = properties.get("position")
-    localized_identifier = properties.get("localized_id")
+    localized_identifier = properties.get("id")
 
     return {
         "id": str(localized_identifier) if localized_identifier is not None else None,
