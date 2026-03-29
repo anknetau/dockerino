@@ -92,7 +92,7 @@ def dock_item_record(elem):
         ("role", AS.kAXRoleAttribute),
         ("subrole", AS.kAXSubroleAttribute),
         ("title", AS.kAXTitleAttribute),
-        ("localized_title", AS.AXLocalizedTitleAttribute),
+        ("localized_title", "AXLocalizedTitleAttribute"),
         ("url", AS.kAXURLAttribute),
         ("badge", "AXStatusLabel"),
         ("running", AS.kAXIsApplicationRunningAttribute),
