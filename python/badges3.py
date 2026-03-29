@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 
-from AppKit import NSWorkspace, NSRunningApplication
+from AppKit import NSRunningApplication
 from ApplicationServices import (
     AXIsProcessTrusted,
     AXUIElementCreateApplication,
     AXUIElementCopyAttributeNames,
     AXUIElementCopyAttributeValue,
 )
+import ApplicationServices as AS
 
 DOCK_BUNDLE_ID = "com.apple.dock"
 
 CONTAINER_ATTRS = [
-    "AXChildren",
-    "AXContents",
-    "AXVisibleChildren",
+    AS.kAXChildrenAttribute,
+    AS.kAXContentsAttribute,
+    AS.kAXVisibleChildrenAttribute,
 ]
 
 
@@ -59,27 +60,12 @@ def iter_child_elements(elem):
                     yield attr, child
 
 
-def walk_ax(elem, seen=None):
-    if seen is None:
-        seen = set()
-
-    oid = id(elem)
-    # if oid in seen:
-    #     return
-    seen.add(oid)
-
+def walk_ax(elem):
     yield elem
 
-    # Get all children recursively like badges1.py
-    children = ax_value(elem, "AXChildren") or []
+    children = ax_value(elem, AS.kAXChildrenAttribute) or []
     for child in children:
-        yield from walk_ax(child, seen)
-
-    # Also check AXVisibleChildren for elements that might not have AXChildren
-    visible = ax_value(elem, "AXVisibleChildren") or []
-    for child in visible:
-        if id(child) not in seen:
-            yield from walk_ax(child, seen)
+        yield from walk_ax(child)
 
 
 def nsurl_to_path(url):
@@ -92,20 +78,69 @@ def nsurl_to_path(url):
 
 
 def dock_item_record(elem):
-    role = ax_value(elem, "AXRole")
-    subrole = ax_value(elem, "AXSubrole")
+    role = ax_value(elem, AS.kAXRoleAttribute)
+    subrole = ax_value(elem, AS.kAXSubroleAttribute)
 
+    # Collect all available AX* properties for the element
+    all_attrs = ax_attr_names(elem)
+    properties = {}
+    for attr in all_attrs:
+        value = ax_value(elem, attr)
+        properties[attr] = value
 
-    # if role != "AXDockItem" or subrole != "AXApplicationDockItem":
-    #     return None
-
-    title = ax_value(elem, "AXTitle")
-    url = ax_value(elem, "AXURL")
+    # Extract specific properties of interest
+    title = ax_value(elem, AS.kAXTitleAttribute)
+    url = ax_value(elem, AS.kAXURLAttribute)
     badge = ax_value(elem, "AXStatusLabel")
-    running = ax_value(elem, "AXIsApplicationRunning")
-    pos = ax_value(elem, "AXPosition")
+    running = ax_value(elem, AS.kAXIsApplicationRunningAttribute)
+    pos = ax_value(elem, AS.kAXPositionAttribute)
+
+    # Additional properties that might be useful
+    description = ax_value(elem, AS.kAXDescriptionAttribute)
+    help = ax_value(elem, AS.kAXHelpAttribute)
+    value = ax_value(elem, AS.kAXValueAttribute)
+    value_description = ax_value(elem, AS.kAXValueDescriptionAttribute)
+    selected = ax_value(elem, AS.kAXSelectedAttribute)
+    enabled = ax_value(elem, AS.kAXEnabledAttribute)
+    editable = ax_value(elem, "AXEditable")
+    orientation = ax_value(elem, AS.kAXOrientationAttribute)
+    size = ax_value(elem, AS.kAXSizeAttribute)
+    frame = ax_value(elem, "AXFrameAttribute")
+    window = ax_value(elem, AS.kAXWindowAttribute)
+    parent = ax_value(elem, AS.kAXParentAttribute)
+    children = ax_value(elem, AS.kAXChildrenAttribute)
+    visible_children = ax_value(elem, AS.kAXVisibleChildrenAttribute)
+    contents = ax_value(elem, AS.kAXContentsAttribute)
+    role_description = ax_value(elem, AS.kAXRoleDescriptionAttribute)
+    subrole_description = ax_value(elem, "AXSubroleDescription")
+    identifier = ax_value(elem, AS.kAXIdentifierAttribute)
+    label = ax_value(elem, "AXLabel")
+    localized_role_description = ax_value(elem, AS.kAXLocalizedRoleDescriptionAttribute)
+    localized_subrole_description = ax_value(elem, AS.kAXLocalizedSubroleDescriptionAttribute)
+    localized_description = ax_value(elem, "AXLocalizedDescription")
+    localized_help = ax_value(elem, AS.kAXLocalizedHelpAttribute)
+    localized_value_description = ax_value(elem, AS.kAXLocalizedValueDescriptionAttribute)
+    localized_label = ax_value(elem, AS.kAXLocalizedLabelAttribute)
+    localized_title = ax_value(elem, AS.kAXLocalizedTitleAttribute)
+    localized_value = ax_value(elem, AS.kAXLocalizedValueAttribute)
+    localized_identifier = ax_value(elem, AS.kAXLocalizedIdentifierAttribute)
+    localized_role = ax_value(elem, AS.kAXLocalizedRoleAttribute)
+    localized_subrole = ax_value(elem, AS.kAXLocalizedSubroleAttribute)
+    localized_position = ax_value(elem, AS.kAXLocalizedPositionAttribute)
+    localized_size = ax_value(elem, AS.kAXLocalizedSizeAttribute)
+    localized_frame = ax_value(elem, AS.kAXLocalizedFrameAttribute)
+    localized_window = ax_value(elem, AS.kAXLocalizedWindowAttribute)
+    localized_parent = ax_value(elem, AS.kAXLocalizedParentAttribute)
+    localized_children = ax_value(elem, AS.kAXLocalizedChildrenAttribute)
+    localized_visible_children = ax_value(elem, AS.kAXLocalizedVisibleChildrenAttribute)
+    localized_contents = ax_value(elem, AS.kAXLocalizedContentsAttribute)
+    localized_selected = ax_value(elem, AS.kAXLocalizedSelectedAttribute)
+    localized_enabled = ax_value(elem, AS.kAXLocalizedEnabledAttribute)
+    localized_editable = ax_value(elem, AS.kAXLocalizedEditableAttribute)
+    localized_orientation = ax_value(elem, AS.kAXLocalizedOrientationAttribute)
 
     return {
+        "id": str(localized_identifier) if localized_identifier is not None else None,
         "role": str(role) if role is not None else None,
         "subrole": str(subrole) if subrole is not None else None,
         "title": str(title) if title is not None else None,
@@ -114,12 +149,6 @@ def dock_item_record(elem):
         "running": bool(running) if running is not None else None,
         "position": str(pos) if pos is not None else None,
     }
-
-
-def sort_key(item):
-    title = item["title"] or ""
-    return title.lower(), item["path"] or ""
-
 
 def main():
     if not AXIsProcessTrusted():
@@ -131,30 +160,20 @@ def main():
     app_elem = AXUIElementCreateApplication(pid)
 
     records = []
-    seen_records = set()
 
     for elem in walk_ax(app_elem):
         record = dock_item_record(elem)
         if record is None:
             continue
-
-        key = (
-            record["title"],
-            record["path"],
-            record["role"],
-            record["subrole"],
-        )
-        # if record["path"] in seen_records:
-        #     continue
-        seen_records.add(record["path"])
         records.append(record)
 
     if not records:
         print("No AXDockItem entries found.")
         return
 
-    for item in sorted(records, key=sort_key):
+    for item in records:
         print(
+            f"id={item['id']!r} | "
             f"title={item['title']!r} | "
             f"role={item['role']!r} | "
             f"subrole={item['subrole']!r} | "
