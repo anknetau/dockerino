@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-quicklaunch.py — A minimal Quicksilver/Raycast clone for macOS.
+launcher.py — A minimal Quicksilver/Raycast clone for macOS.
 
 Requirements:
     pip install pyobjc
 
 Usage:
-    python quicklaunch.py
+    python launcher.py
 
 Press Option+Space from any app to toggle the launcher.
 Type to search — matched items shown in scrollable list.
 Use ↑/↓ to navigate, Enter to launch, ESC to dismiss.
 """
 
-import os
 import subprocess
 from pathlib import Path
+import signal
+import sys
 import objc
-from Foundation import NSObject, NSNotificationCenter, NSURL
+from Foundation import NSObject, NSNotificationCenter, NSURL, NSIndexSet
 from AppKit import (
     NSApplication,
     NSApp,
@@ -37,6 +38,10 @@ from AppKit import (
     NSApplicationActivationPolicyAccessory,
     NSEventModifierFlagOption,
     NSFloatingWindowLevel,
+    NSScrollView,
+    NSTableView,
+    NSTableColumn,
+    NSControlTextDidChangeNotification,
 )
 
 try:
@@ -80,6 +85,16 @@ KEY_UP = 126
 KEY_DOWN = 125
 MASK_KEYDOWN = 1 << 10
 
+# Layout constants
+INPUT_H = 40
+INPUT_Y = WIN_H - 54        # 446
+SEP_Y   = WIN_H - 59        # 441  (drawn by BackgroundView)
+PREVIEW_Y = 8
+PREVIEW_H = 22
+LIST_BOTTOM = PREVIEW_Y + PREVIEW_H + 6   # 36
+LIST_HEIGHT = SEP_Y - LIST_BOTTOM         # 405
+
+
 # ────────── Helpers ──────────
 def list_applications():
     dirs = [
@@ -100,6 +115,7 @@ def list_applications():
                     results.append((app.stem, str(app)))
     return results
 
+
 def match_score(query: str, title: str) -> int:
     q, t = query.lower(), title.lower()
     if not q:
@@ -118,11 +134,13 @@ def match_score(query: str, title: str) -> int:
         idx = pos + 1
     return 500 - len(t)
 
+
 # ────────── Views ──────────
 class KeyablePanel(NSPanel):
     @objc.typedSelector(b"B16@0:8")
     def canBecomeKeyWindow(self):
         return True
+
 
 class BackgroundView(NSView):
     def drawRect_(self, rect):
@@ -137,8 +155,10 @@ class BackgroundView(NSView):
         sep.setLineWidth_(0.5)
         sep.stroke()
 
+
 # ────────── AppDelegate ──────────
 class AppDelegate(NSObject):
+
     def applicationDidFinishLaunching_(self, _notification):
         NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
         self._items = self._build_catalogue()
@@ -148,20 +168,28 @@ class AppDelegate(NSObject):
         self._build_panel()
         self._install_monitors()
 
+    # ── Catalogue ──
+
     def _build_catalogue(self):
         items = []
         for name, path in list_applications():
-            items.append({"title": name, "type": "app", "target": path, "preview": f"  Launch  ›  {path}"})
+            items.append({"title": name, "type": "app", "target": path,
+                          "preview": f"  Launch  ›  {path}"})
         for entry in CLI_COMMANDS:
             title, cmd = (entry, entry) if isinstance(entry, str) else entry
-            items.append({"title": title, "type": "cmd", "target": cmd, "preview": f"  Run  ›  $ {cmd}"})
+            items.append({"title": title, "type": "cmd", "target": cmd,
+                          "preview": f"  Run  ›  $ {cmd}"})
         for entry in URLS:
             title, url = (entry, entry) if isinstance(entry, str) else entry
-            items.append({"title": title, "type": "url", "target": url, "preview": f"  Open  ›  {url}"})
+            items.append({"title": title, "type": "url", "target": url,
+                          "preview": f"  Open  ›  {url}"})
         for entry in INTERNAL_COMMANDS:
             title, icmd = (entry, entry) if isinstance(entry, str) else entry
-            items.append({"title": title, "type": "icmd", "target": icmd, "preview": f" {icmd}"})
+            items.append({"title": title, "type": "icmd", "target": icmd,
+                          "preview": f" {icmd}"})
         return items
+
+    # ── Panel ──
 
     def _build_panel(self):
         sf = NSScreen.mainScreen().frame()
@@ -179,7 +207,9 @@ class AppDelegate(NSObject):
         panel.setOpaque_(False)
         panel.setHasShadow_(True)
         panel.setBackgroundColor_(NSColor.clearColor())
-        panel.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary)
+        panel.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary
+        )
         panel.setHidesOnDeactivate_(False)
         panel.setMovableByWindowBackground_(True)
 
@@ -187,10 +217,14 @@ class AppDelegate(NSObject):
         panel.contentView().addSubview_(bg)
         bg.setNeedsDisplay_(True)
 
-        font_input = NSFont.fontWithName_size_("Menlo", 22) or NSFont.systemFontOfSize_(22)
+        font_input   = NSFont.fontWithName_size_("Menlo", 22) or NSFont.systemFontOfSize_(22)
+        font_list    = NSFont.fontWithName_size_("Menlo", 13) or NSFont.systemFontOfSize_(13)
         font_preview = NSFont.fontWithName_size_("Menlo", 12) or NSFont.systemFontOfSize_(12)
 
-        tf = NSTextField.alloc().initWithFrame_(NSMakeRect(18, WIN_H - 54, WIN_W - 36, 40))
+        # ── Input field ──
+        tf = NSTextField.alloc().initWithFrame_(
+            NSMakeRect(18, INPUT_Y, WIN_W - 36, INPUT_H)
+        )
         tf.setFont_(font_input)
         tf.setTextColor_(NSColor.colorWithWhite_alpha_(0.95, 1.0))
         tf.setBackgroundColor_(NSColor.clearColor())
@@ -202,7 +236,44 @@ class AppDelegate(NSObject):
         )
         bg.addSubview_(tf)
 
-        pf = NSTextField.alloc().initWithFrame_(NSMakeRect(18, 8, WIN_W - 36, 22))
+        # ── Scrollable results list ──
+        scroll = NSScrollView.alloc().initWithFrame_(
+            NSMakeRect(0, LIST_BOTTOM, WIN_W, LIST_HEIGHT)
+        )
+        scroll.setDrawsBackground_(False)
+        scroll.setHasVerticalScroller_(True)
+        scroll.setHasHorizontalScroller_(False)
+        scroll.setAutohidesScrollers_(True)
+        scroll.setVerticalScrollElasticity_(1)   # NSScrollElasticityNone
+
+        tv = NSTableView.alloc().initWithFrame_(
+            NSMakeRect(0, 0, WIN_W, LIST_HEIGHT)
+        )
+        col = NSTableColumn.alloc().initWithIdentifier_("title")
+        col.setWidth_(WIN_W - 4)
+        col.setResizingMask_(0)   # NSTableColumnNoResizing
+        col.dataCell().setFont_(font_list)
+        col.dataCell().setTextColor_(NSColor.colorWithWhite_alpha_(0.78, 1.0))
+        tv.addTableColumn_(col)
+        tv.setHeaderView_(None)
+        tv.setBackgroundColor_(NSColor.clearColor())
+        tv.setRowHeight_(LIST_ITEM_HEIGHT)
+        tv.setIntercellSpacing_((0, 2))
+        tv.setGridStyleMask_(0)
+        tv.setFocusRingType_(NSFocusRingTypeNone)
+        tv.setAllowsEmptySelection_(True)
+        # Suppress the native blue selection bar so we draw our own highlight
+        tv.setSelectionHighlightStyle_(-1)   # NSTableViewSelectionHighlightStyleNone
+        tv.setDataSource_(self)
+        tv.setDelegate_(self)
+
+        scroll.setDocumentView_(tv)
+        bg.addSubview_(scroll)
+
+        # ── Preview field ──
+        pf = NSTextField.alloc().initWithFrame_(
+            NSMakeRect(18, PREVIEW_Y, WIN_W - 36, PREVIEW_H)
+        )
         pf.setFont_(font_preview)
         pf.setTextColor_(NSColor.colorWithWhite_alpha_(0.48, 1.0))
         pf.setBackgroundColor_(NSColor.clearColor())
@@ -212,9 +283,36 @@ class AppDelegate(NSObject):
         pf.setFocusRingType_(NSFocusRingTypeNone)
         bg.addSubview_(pf)
 
-        self._panel = panel
-        self._input = tf
+        self._panel  = panel
+        self._input  = tf
+        self._table  = tv
         self._preview = pf
+
+    # ── NSTableViewDataSource ──
+
+    def numberOfRowsInTableView_(self, tv):
+        return len(self._matches)
+
+    def tableView_objectValueForTableColumn_row_(self, tv, col, row):
+        if 0 <= row < len(self._matches):
+            return self._matches[row]["title"]
+        return ""
+
+    # ── NSTableViewDelegate ──
+
+    def tableView_willDisplayCell_forTableColumn_row_(self, tv, cell, col, row):
+        """Draw our own selection highlight instead of the native blue bar."""
+        if row == self._selection_idx:
+            cell.setTextColor_(NSColor.whiteColor())
+            cell.setBackgroundColor_(
+                NSColor.colorWithRed_green_blue_alpha_(0.18, 0.44, 0.95, 0.40)
+            )
+            cell.setDrawsBackground_(True)
+        else:
+            cell.setTextColor_(NSColor.colorWithWhite_alpha_(0.78, 1.0))
+            cell.setDrawsBackground_(False)
+
+    # ── Visibility ──
 
     def toggle(self):
         if self._panel.isVisible():
@@ -238,6 +336,7 @@ class AppDelegate(NSObject):
         self._current_item = None
         self._matches = []
         self._selection_idx = -1
+        self._table.reloadData()
 
     def execute(self):
         if self._current_item is None:
@@ -253,26 +352,54 @@ class AppDelegate(NSObject):
         elif item["type"] == "icmd" and item["target"] == "QUIT":
             NSApp.terminate_(None)
 
+    # ── Search logic ──
+
     def _update_matches(self, query):
-        scored = [(item, match_score(query, item["title"])) for item in self._items]
-        self._matches = sorted([i for i, s in scored if s > 0], key=lambda x: -match_score(query, x["title"]))
+        scored = [
+            (item, match_score(query, item["title"])) for item in self._items
+        ]
+        self._matches = sorted(
+            [i for i, s in scored if s > 0],
+            key=lambda x: -match_score(query, x["title"]),
+        )
         self._selection_idx = 0 if self._matches else -1
-        self._current_item = self._matches[self._selection_idx] if self._selection_idx >= 0 else None
-        self._preview.setStringValue_(self._current_item["preview"] if self._current_item else ("  No match found" if query else ""))
+        self._current_item = (
+            self._matches[self._selection_idx] if self._selection_idx >= 0 else None
+        )
+        self._table.reloadData()
+        if self._selection_idx >= 0:
+            self._table.scrollRowToVisible_(self._selection_idx)
+        self._preview.setStringValue_(
+            self._current_item["preview"] if self._current_item
+            else ("  No match found" if query else "")
+        )
 
     def _move_selection(self, delta):
+        """Move highlight up/down without re-running the search query."""
         if not self._matches:
             return
-        self._selection_idx = max(0, min(len(self._matches) - 1, self._selection_idx + delta))
+        self._selection_idx = max(
+            0, min(len(self._matches) - 1, self._selection_idx + delta)
+        )
         self._current_item = self._matches[self._selection_idx]
-        self._update_matches(self._input.stringValue().strip())
+        # Redraw rows so tableView_willDisplayCell fires with new selection_idx
+        self._table.reloadData()
+        self._table.scrollRowToVisible_(self._selection_idx)
+        self._preview.setStringValue_(self._current_item["preview"])
+
+    # ── Event monitors ──
 
     def _install_monitors(self):
         me = self
+
         def global_handler(event):
-            if (event.modifierFlags() & NSEventModifierFlagOption) and event.keyCode() == KEY_SPACE:
+            if (event.modifierFlags() & NSEventModifierFlagOption) and \
+               event.keyCode() == KEY_SPACE:
                 me.toggle()
-        NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(MASK_KEYDOWN, global_handler)
+
+        NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+            MASK_KEYDOWN, global_handler
+        )
 
         def local_handler(event):
             kc = event.keyCode()
@@ -288,16 +415,21 @@ class AppDelegate(NSObject):
             if kc == KEY_DOWN:
                 me._move_selection(1)
                 return None
-            if (event.modifierFlags() & NSEventModifierFlagOption) and kc == KEY_SPACE:
+            if (event.modifierFlags() & NSEventModifierFlagOption) and \
+               kc == KEY_SPACE:
                 me.toggle()
                 return None
             return event
-        NSEvent.addLocalMonitorForEventsMatchingMask_handler_(MASK_KEYDOWN, local_handler)
+
+        NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+            MASK_KEYDOWN, local_handler
+        )
 
     @objc.typedSelector(b"v@:@")
     def controlTextDidChange_(self, notification):
         query = self._input.stringValue().strip()
         self._update_matches(query)
+
 
 def main():
     app = NSApplication.sharedApplication()
@@ -305,5 +437,11 @@ def main():
     app.setDelegate_(delegate)
     app.run()
 
+def signal_handler(sig, frame):
+    print('You pressed Ctrl+C!')
+    NSApp.terminate_(None)
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, signal_handler)
     main()
+
