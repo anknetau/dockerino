@@ -5,8 +5,7 @@ import CoreFoundation
 
 // MARK: - Constants
 
-let REFRESH_INTERVAL: TimeInterval = 5.0
-let STATUS_ITEM_TITLE = "D"
+let REFRESH_INTERVAL = 5.0
 
 let DOCK_DOMAIN = "com.apple.dock" as CFString
 let PERSISTENT_APPS_KEY = "persistent-apps" as CFString
@@ -21,11 +20,16 @@ let ICON_SIZE = NSSize(width: 16, height: 16)
 let RUNNING_PREFIX = "• "
 let STOPPED_PREFIX = "  "
 let WINDOW_PREFIX = "      ↳ "
-let AX_DENIED_LABEL = "  ⚠ Enable Accessibility to show minimised windows…"
+let AX_DENIED_LABEL = "  Enable Accessibility to show minimised windows..."
 
 let AX_WINDOWS = kAXWindowsAttribute as String
 let AX_MINIMIZED = kAXMinimizedAttribute as String
 let AX_TITLE = kAXTitleAttribute as String
+
+// Hover-reorder test
+let ENABLE_HOVER_REORDER_TEST = true
+let HOVER_REORDER_INTERVAL = 0.7
+let HOVER_REORDER_COUNT = 8
 
 // MARK: - Models
 
@@ -52,45 +56,38 @@ final class MinimizedWindow: NSObject {
     }
 }
 
-// MARK: - CF / AX helpers
+final class DebugItem: NSObject {
+    let id: Int
+    let title: String
 
-func cfDictionaryToSwiftDictionary(_ value: CFPropertyList?) -> [String: Any] {
-    guard let dict = value as? [String: Any] else { return [:] }
-    return dict
-}
-
-func cfURLStringToPath(_ url: String?) -> String? {
-    guard let url, !url.isEmpty else { return nil }
-    if url.hasPrefix("file://"), let parsed = URL(string: url) {
-        return parsed.path
+    init(id: Int, title: String) {
+        self.id = id
+        self.title = title
     }
-    return url
 }
+
+// MARK: - General helpers
 
 func normalizePath(_ path: String?) -> String? {
     guard var path, !path.isEmpty else { return nil }
-    while path.hasSuffix("/") && path.count > 1 {
+    while path.count > 1 && path.hasSuffix("/") {
         path.removeLast()
     }
     return path.isEmpty ? nil : path
 }
 
-func isFinderEntry(_ path: String) -> Bool {
-    path.hasSuffix(FINDER_PATH.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+func fileURLStringToPath(_ value: String?) -> String? {
+    guard let value, !value.isEmpty else { return nil }
+
+    if value.hasPrefix("file://"), let url = URL(string: value) {
+        return normalizePath(url.path)
+    }
+
+    return normalizePath(value)
 }
 
-func axCopyAttributeValue(_ element: AXUIElement, _ attribute: String) -> (AXError, AnyObject?) {
-    var value: CFTypeRef?
-    let err = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-    return (err, value)
-}
-
-func axSetAttributeValue(_ element: AXUIElement, _ attribute: String, _ value: CFTypeRef) -> AXError {
-    AXUIElementSetAttributeValue(element, attribute as CFString, value)
-}
-
-func accessibilityPermissionGranted() -> Bool {
-    AXIsProcessTrustedWithOptions(nil)
+func isFinderPath(_ path: String) -> Bool {
+    (normalizePath(path) ?? path) == FINDER_PATH
 }
 
 func openAccessibilityPreferencesPane() {
@@ -100,31 +97,123 @@ func openAccessibilityPreferencesPane() {
     NSWorkspace.shared.open(url)
 }
 
+func openPath(_ path: String) {
+    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+}
+
+// MARK: - Anchor icon
+
+func makeAnchorStatusImage() -> NSImage {
+    let size = NSSize(width: 18, height: 18)
+    let image = NSImage(size: size)
+    image.isTemplate = true
+
+    image.lockFocus()
+
+    let path = NSBezierPath()
+    path.lineWidth = 2.1
+    NSColor.labelColor.setStroke()
+
+    let midX = size.width / 2
+    let ringCenterY: CGFloat = 12.0
+    let ringRadius: CGFloat = 2.0
+
+    path.appendArc(
+        withCenter: NSPoint(x: midX, y: ringCenterY),
+        radius: ringRadius,
+        startAngle: 0,
+        endAngle: 360
+    )
+
+    path.move(to: NSPoint(x: midX, y: 9.4))
+    path.line(to: NSPoint(x: midX, y: 5.2))
+
+    path.move(to: NSPoint(x: midX - 4.8, y: 7.6))
+    path.line(to: NSPoint(x: midX + 4.8, y: 7.6))
+
+    path.move(to: NSPoint(x: midX - 4.8, y: 7.6))
+    path.curve(
+        to: NSPoint(x: midX - 1.4, y: 2.8),
+        controlPoint1: NSPoint(x: midX - 5.0, y: 5.5),
+        controlPoint2: NSPoint(x: midX - 4.3, y: 2.9)
+    )
+
+    path.move(to: NSPoint(x: midX + 4.8, y: 7.6))
+    path.curve(
+        to: NSPoint(x: midX + 1.4, y: 2.8),
+        controlPoint1: NSPoint(x: midX + 5.0, y: 5.5),
+        controlPoint2: NSPoint(x: midX + 4.3, y: 2.9)
+    )
+
+    path.move(to: NSPoint(x: midX - 1.9, y: 3.5))
+    path.line(to: NSPoint(x: midX, y: 1.8))
+    path.line(to: NSPoint(x: midX + 1.9, y: 3.5))
+
+    path.stroke()
+    image.unlockFocus()
+
+    return image
+}
+
+// MARK: - AX helpers
+
+func axCopyAttributeValue(_ element: AXUIElement, _ attribute: String) -> (AXError, AnyObject?) {
+    var value: CFTypeRef?
+    let err = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    return (err, value as AnyObject?)
+}
+
+func axSetAttributeValue(_ element: AXUIElement, _ attribute: String, _ value: CFTypeRef) -> AXError {
+    AXUIElementSetAttributeValue(element, attribute as CFString, value)
+}
+
+func getAXBool(_ value: AnyObject?) -> Bool {
+    if let b = value as? Bool { return b }
+    if let n = value as? NSNumber { return n.boolValue }
+    return false
+}
+
+func getAXString(_ value: AnyObject?) -> String? {
+    value as? String
+}
+
 // MARK: - Dock preferences
 
 func entriesForDockKey(_ key: CFString) -> [DockEntry] {
-    let raw = CFPreferencesCopyAppValue(key, DOCK_DOMAIN)
+    guard let raw = CFPreferencesCopyAppValue(key, DOCK_DOMAIN) else {
+        return []
+    }
+
     guard let items = raw as? [[String: Any]] else {
         return []
     }
 
-    var entries: [DockEntry] = []
+    var out: [DockEntry] = []
 
     for item in items {
-        let tileData = item["tile-data"] as? [String: Any] ?? [:]
-        let fileData = tileData["file-data"] as? [String: Any] ?? [:]
+        guard let tileData = item["tile-data"] as? [String: Any] else {
+            continue
+        }
 
-        let label = (tileData["file-label"] as? String) ?? "Unknown"
-        let url = fileData["_CFURLString"] as? String
-        let path = normalizePath(cfURLStringToPath(url))
+        let fileLabel = (tileData["file-label"] as? String) ?? "Unknown"
+        let fileData = tileData["file-data"] as? [String: Any]
 
-        guard let path else { continue }
-        if isFinderEntry(path) { continue }
+        let urlString =
+            (fileData?["_CFURLString"] as? String) ??
+            (fileData?["CFURLString"] as? String)
 
-        entries.append(DockEntry(label: label, path: path))
+        guard let path = fileURLStringToPath(urlString) else {
+            continue
+        }
+
+        if isFinderPath(path) {
+            continue
+        }
+
+        out.append(DockEntry(label: fileLabel, path: path))
     }
 
-    return entries
+    return out
 }
 
 func getPersistentDockApps() -> [DockEntry] {
@@ -142,26 +231,29 @@ func getTrashEntry() -> DockEntry {
 // MARK: - Dock autohide
 
 func getDockAutohide() -> Bool {
-    let value = CFPreferencesCopyAppValue(AUTOHIDE_KEY, DOCK_DOMAIN)
-    if let b = value as? Bool { return b }
-    if let n = value as? NSNumber { return n.boolValue }
+    guard let raw = CFPreferencesCopyAppValue(AUTOHIDE_KEY, DOCK_DOMAIN) else {
+        return false
+    }
+
+    if let b = raw as? Bool {
+        return b
+    }
+    if let n = raw as? NSNumber {
+        return n.boolValue
+    }
+
     return false
 }
 
 func restartDock() {
-    let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock")
-    for app in apps {
+    for app in NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock") {
         app.forceTerminate()
     }
 }
 
 func setDockAutohide(_ hidden: Bool) {
-    CFPreferencesSetAppValue(AUTOHIDE_KEY, hidden as CFBoolean, DOCK_DOMAIN)
-    let ok = CFPreferencesAppSynchronize(DOCK_DOMAIN)
-    if !ok {
-        fputs("Failed to synchronize Dock preferences\n", stderr)
-        return
-    }
+    CFPreferencesSetAppValue(AUTOHIDE_KEY, hidden as CFPropertyList, DOCK_DOMAIN)
+    _ = CFPreferencesAppSynchronize(DOCK_DOMAIN)
     restartDock()
 }
 
@@ -184,12 +276,14 @@ func getRunningRegularApps() -> [NSRunningApplication] {
 }
 
 func buildRunningByPath(_ apps: [NSRunningApplication]) -> [String: NSRunningApplication] {
-    var mapping: [String: NSRunningApplication] = [:]
+    var out: [String: NSRunningApplication] = [:]
+
     for app in apps {
         guard let path = normalizePath(app.bundleURL?.path) else { continue }
-        mapping[path] = app
+        out[path] = app
     }
-    return mapping
+
+    return out
 }
 
 func getFinderApp() -> NSRunningApplication? {
@@ -208,7 +302,6 @@ func pidToBundleID(_ pid: pid_t) -> String? {
 
 func getMinimizedWindows(pid: pid_t) -> (AccessibilityStatus, [MinimizedWindow]) {
     let appRef = AXUIElementCreateApplication(pid)
-
     let (err, windowsValue) = axCopyAttributeValue(appRef, AX_WINDOWS)
 
     if err == .apiDisabled {
@@ -219,52 +312,74 @@ func getMinimizedWindows(pid: pid_t) -> (AccessibilityStatus, [MinimizedWindow])
         return (.unavailable, [])
     }
 
-    guard let windows = windowsValue as? [Any], !windows.isEmpty else {
+    guard let windowsArray = windowsValue as? NSArray else {
         return (.unavailable, [])
     }
 
-    var minimized: [MinimizedWindow] = []
+    var out: [MinimizedWindow] = []
 
-    for item in windows {
-        let win = unsafeBitCast(item as AnyObject, to: AXUIElement.self)
+    for item in windowsArray {
+        let anyObject = item as AnyObject
+        let win = unsafeBitCast(anyObject, to: AXUIElement.self)
 
         let (minErr, minValue) = axCopyAttributeValue(win, AX_MINIMIZED)
-        if minErr != .success {
-            continue
-        }
+        guard minErr == .success else { continue }
+        guard getAXBool(minValue) else { continue }
 
-        let isMinimized: Bool = {
-            if let b = minValue as? Bool { return b }
-            if let n = minValue as? NSNumber { return n.boolValue }
-            return false
-        }()
+        let (_, titleValue) = axCopyAttributeValue(win, AX_TITLE)
+        let title = getAXString(titleValue).flatMap { $0.isEmpty ? nil : $0 } ?? "(Untitled)"
 
-        if !isMinimized {
-            continue
-        }
-
-        let (_, rawTitle) = axCopyAttributeValue(win, AX_TITLE)
-        let title = (rawTitle as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "(Untitled)"
-
-        minimized.append(MinimizedWindow(title: title, pid: pid, axRef: win))
+        out.append(MinimizedWindow(title: title, pid: pid, axRef: win))
     }
 
-    return (.ok, minimized)
+    return (.ok, out)
 }
 
 func restoreWindow(_ window: MinimizedWindow) {
     _ = axSetAttributeValue(window.axRef, AX_MINIMIZED, kCFBooleanFalse)
-    AXUIElementPerformAction(window.axRef, kAXRaiseAction as CFString)
+    _ = AXUIElementPerformAction(window.axRef, kAXRaiseAction as CFString)
 
     var app: NSRunningApplication?
+
     if let bundleID = pidToBundleID(window.pid) {
         app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
     }
+
     if app == nil {
         app = appForPID(window.pid)
     }
 
     app?.activate(options: [.activateAllWindows])
+}
+
+// MARK: - Debug reorder section
+
+func makeInitialDebugItems() -> [DebugItem] {
+    (1...HOVER_REORDER_COUNT).map { i in
+        DebugItem(id: i, title: "Test Item \(i)")
+    }
+}
+
+func rotateDebugItems(_ items: inout [DebugItem]) {
+    guard items.count > 1 else { return }
+    let first = items.removeFirst()
+    items.append(first)
+}
+
+// For a harsher test, replace the function above with this:
+// func rotateDebugItems(_ items: inout [DebugItem]) {
+//     items.shuffle()
+// }
+
+func appendDebugTestSection(_ menu: NSMenu, _ items: [DebugItem], _ target: AnyObject) {
+    menu.addItem(.separator())
+    menu.addItem(disabledTextItem("Hover reorder test"))
+
+    for itemModel in items {
+        let item = makeItem(itemModel.title, #selector(AppDelegate.debugItemSelected(_:)), target)
+        item.representedObject = itemModel
+        menu.addItem(item)
+    }
 }
 
 // MARK: - Menu item builders
@@ -307,16 +422,16 @@ func dockAppItem(_ entry: DockEntry, isRunning: Bool, target: AnyObject) -> NSMe
     return item
 }
 
-func trashItem(_ target: AnyObject) -> NSMenuItem {
-    let entry = getTrashEntry()
-    let item = makeItem(entry.label, #selector(AppDelegate.openTrash(_:)), target)
+func dockOtherItem(_ entry: DockEntry, _ target: AnyObject) -> NSMenuItem {
+    let item = makeItem(entry.label, #selector(AppDelegate.openDockApp(_:)), target)
     item.representedObject = entry.path as NSString
     applyIcon(item, path: entry.path)
     return item
 }
 
-func dockOtherItem(_ entry: DockEntry, _ target: AnyObject) -> NSMenuItem {
-    let item = makeItem(entry.label, #selector(AppDelegate.openDockApp(_:)), target)
+func trashItem(_ target: AnyObject) -> NSMenuItem {
+    let entry = getTrashEntry()
+    let item = makeItem(entry.label, #selector(AppDelegate.openTrash(_:)), target)
     item.representedObject = entry.path as NSString
     applyIcon(item, path: entry.path)
     return item
@@ -375,7 +490,8 @@ func appendMinimizedWindows(
 func extraRunningApps(_ runningApps: [NSRunningApplication], dockPaths: Set<String>) -> [NSRunningApplication] {
     let extras = runningApps.filter { app in
         guard let path = app.bundleURL?.path else { return true }
-        return !dockPaths.contains(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        let normalized = normalizePath(path) ?? path
+        return !dockPaths.contains(normalized)
     }
 
     return extras.sorted {
@@ -383,7 +499,7 @@ func extraRunningApps(_ runningApps: [NSRunningApplication], dockPaths: Set<Stri
     }
 }
 
-func populateMenu(_ menu: NSMenu, _ target: AppDelegate) {
+func populateMenu(_ menu: NSMenu, _ target: AppDelegate, debugItems: [DebugItem]) {
     menu.removeAllItems()
 
     let runningApps = getRunningRegularApps()
@@ -395,13 +511,7 @@ func populateMenu(_ menu: NSMenu, _ target: AppDelegate) {
         menu.addItem(runningAppItem(finder, target))
         appendMinimizedWindows(to: menu, app: finder, target: target, axDeniedShown: &axDeniedShown)
     } else {
-        menu.addItem(
-            dockAppItem(
-                DockEntry(label: "Finder", path: FINDER_PATH),
-                isRunning: false,
-                target: target
-            )
-        )
+        menu.addItem(dockAppItem(DockEntry(label: "Finder", path: FINDER_PATH), isRunning: false, target: target))
     }
 
     let dockEntries = getPersistentDockApps()
@@ -420,11 +530,11 @@ func populateMenu(_ menu: NSMenu, _ target: AppDelegate) {
 
     menu.addItem(.separator())
 
-    let extra = extraRunningApps(runningApps, dockPaths: dockPaths)
-    if extra.isEmpty {
+    let extras = extraRunningApps(runningApps, dockPaths: dockPaths)
+    if extras.isEmpty {
         menu.addItem(disabledTextItem("No other running apps"))
     } else {
-        for app in extra {
+        for app in extras {
             menu.addItem(runningAppItem(app, target))
             appendMinimizedWindows(to: menu, app: app, target: target, axDeniedShown: &axDeniedShown)
         }
@@ -440,6 +550,10 @@ func populateMenu(_ menu: NSMenu, _ target: AppDelegate) {
 
     menu.addItem(trashItem(target))
 
+    if ENABLE_HOVER_REORDER_TEST {
+        appendDebugTestSection(menu, debugItems, target)
+    }
+
     menu.addItem(.separator())
     menu.addItem(dockVisibilityItem(target))
     menu.addItem(actionItem("Quit", #selector(AppDelegate.quitApp(_:)), "q", target))
@@ -451,6 +565,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem?
     var menu: NSMenu?
     var refreshTimer: Timer?
+    var hoverReorderTimer: Timer?
+    var debugItems: [DebugItem] = makeInitialDebugItems()
+    var isMenuOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -479,8 +596,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func setupRefreshTimer() {
-        refreshTimer = Timer.scheduledTimer(
-            timeInterval: REFRESH_INTERVAL,
+        refreshTimer = Timer(
+            timeInterval: 1.0,
             target: self,
             selector: #selector(timerFired(_:)),
             userInfo: nil,
@@ -490,13 +607,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func rebuildMenu() {
         guard let menu else { return }
-        populateMenu(menu, self)
+        populateMenu(menu, self, debugItems: debugItems)
+    }
+
+    func startHoverReorderTimer() {
+        print("startHoverReorderTimer")
+        guard ENABLE_HOVER_REORDER_TEST else { return }
+        print("startHoverReorderTimer2")
+        guard hoverReorderTimer == nil else { return }
+        print("startHoverReorderTimer3")
+
+        hoverReorderTimer = Timer(
+            timeInterval: 0.7,
+            target: self,
+            selector: #selector(hoverReorderTick(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.main.add(hoverReorderTimer!, forMode: .common)
+    }
+
+    func stopHoverReorderTimer() {
+        print("stopHoverReorderTimer")
+        hoverReorderTimer?.invalidate()
+        hoverReorderTimer = nil
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        print("menuWillOpen")
+        isMenuOpen = true
         rebuildMenu()
+        startHoverReorderTimer()
     }
 
+    func menuDidClose(_ menu: NSMenu) {
+        print("menuDidClose")
+        isMenuOpen = false
+        stopHoverReorderTimer()
+    }
+
+    @objc func hoverReorderTick(_ sender: Any?) {
+        print("hoverReorderTick")
+
+        rotateDebugItems(&debugItems)
+
+        if isMenuOpen {
+            rebuildMenu()
+        }
+    }
+
+    @objc func timerFired(_ sender: Any?) {
+        print("timer fired")
+        if !isMenuOpen {
+            rebuildMenu()
+        }
+    }
 
     @objc func activateApp(_ sender: NSMenuItem) {
         guard let app = sender.representedObject as? NSRunningApplication else { return }
@@ -505,12 +670,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func openDockApp(_ sender: NSMenuItem) {
         guard let path = sender.representedObject as? String else { return }
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        openPath(path)
     }
 
     @objc func openTrash(_ sender: NSMenuItem) {
         guard let path = sender.representedObject as? String else { return }
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        openPath(path)
     }
 
     @objc func restoreWindowAction(_ sender: NSMenuItem) {
@@ -523,21 +688,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func toggleDockVisibility(_ sender: Any?) {
-        toggleDockAutohide()
+        _ = toggleDockAutohide()
         rebuildMenu()
     }
 
-    @objc func timerFired(_ sender: Any?) {
-        rebuildMenu()
-    }
-
-    @objc func refreshMenu(_ sender: Any?) {
-        rebuildMenu()
+    @objc func debugItemSelected(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? DebugItem else { return }
+        print("Selected debug item \(item.id): \(item.title)")
     }
 
     @objc func quitApp(_ sender: Any?) {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        stopHoverReorderTimer()
         NSApp.terminate(nil)
     }
 }
@@ -550,63 +713,3 @@ app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
-
-func makeAnchorStatusImage() -> NSImage {
-    let size = NSSize(width: 18, height: 18)
-    let image = NSImage(size: size)
-    image.isTemplate = true
-
-    image.lockFocus()
-
-    let path = NSBezierPath()
-    path.lineWidth = 1.8
-
-    let midX = size.width / 2.0
-    let topY: CGFloat = 14.5
-    let ringRadius: CGFloat = 2.2
-    let stemTop = topY - ringRadius - 0.8
-    let stemBottom: CGFloat = 6.4
-    let armY: CGFloat = 8.2
-    let armHalfWidth: CGFloat = 4.6
-    let baseY: CGFloat = 3.2
-    let hookDrop: CGFloat = 3.0
-    let hookInset: CGFloat = 1.4
-
-    NSColor.labelColor.setStroke()
-
-    path.appendArc(
-        withCenter: NSPoint(x: midX, y: topY - ringRadius),
-        radius: ringRadius,
-        startAngle: 0,
-        endAngle: 360
-    )
-
-    path.move(to: NSPoint(x: midX, y: stemTop))
-    path.line(to: NSPoint(x: midX, y: stemBottom))
-
-    path.move(to: NSPoint(x: midX - armHalfWidth, y: armY))
-    path.line(to: NSPoint(x: midX + armHalfWidth, y: armY))
-
-    path.move(to: NSPoint(x: midX - armHalfWidth, y: armY))
-    path.curve(
-        to: NSPoint(x: midX - hookInset, y: baseY),
-        controlPoint1: NSPoint(x: midX - armHalfWidth, y: armY - 1.8),
-        controlPoint2: NSPoint(x: midX - armHalfWidth + 0.2, y: baseY + hookDrop)
-    )
-
-    path.move(to: NSPoint(x: midX + armHalfWidth, y: armY))
-    path.curve(
-        to: NSPoint(x: midX + hookInset, y: baseY),
-        controlPoint1: NSPoint(x: midX + armHalfWidth, y: armY - 1.8),
-        controlPoint2: NSPoint(x: midX + armHalfWidth - 0.2, y: baseY + hookDrop)
-    )
-
-    path.move(to: NSPoint(x: midX - 2.1, y: baseY + 0.6))
-    path.line(to: NSPoint(x: midX, y: baseY - 1.0))
-    path.line(to: NSPoint(x: midX + 2.1, y: baseY + 0.6))
-
-    path.stroke()
-    image.unlockFocus()
-
-    return image
-}
